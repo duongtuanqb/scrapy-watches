@@ -93,31 +93,35 @@ class TgddSpider(scrapy.Spider):
         loader.add_value('Price', response.css('.area_price .hisprice::text').get())
         loader.add_value('Images', [
             response.urljoin(img.get()) for img in response.xpath('//div[contains(@class, '
-                                                                  '"colorandpic")]//li//img/@data-img | //div['
-                                                                  'contains(@class, "colorandpic")]//li//img/@src')
+                                                                  '"colorandpic")]//li//img/@data-img | '
+                                                                  '//*[contains(@class, "picture")]//img/@src')
         ])
 
-        if response.css('#ProductId::attr(value)').get():
+        if response.css('#ProductId::attr(value)'):
+            query_attr = {'productID': str(response.css('#ProductId::attr(value)').get())}
+            print(query_attr)
             yield scrapy.FormRequest(
                 url='https://www.thegioididong.com/aj/ProductV4/GetFullSpec/',
                 method='POST',
                 headers=self.HEADER,
-                formdata={'productID': str(response.css('#ProductId::attr(value)').get())},
+                formdata=query_attr,
                 callback=self.parse_attribute,
                 meta={'loader': loader},
                 dont_filter=True
             )
+        else:
+            return loader.load_item()
 
     def parse_attribute(self, response):
         loader = response.meta['loader']
-        product = Product()
+        product = loader.load_item()
         to_html = Selector(text=json.loads(response.body)['spec'])
 
-        for attr in to_html.xpath('//li[@class]').getall():
-            attr_html = Selector(text=attr)
-            key = attr_html.xpath('//span//text()').get()
-            value = attr_html.xpath('//span/following-sibling::div//text()').get()
+        for attr in to_html.xpath('//li[@class]'):
+            key = attr.xpath('.//span//text()').get()
+            value = attr.xpath('.//span/following-sibling::div//text()').get()
             if key not in product:
                 product.fields[key] = Field(output_processor=TakeFirst())
             loader.add_value(key, value)
+
         yield loader.load_item()
