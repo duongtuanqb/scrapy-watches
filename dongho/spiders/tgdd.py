@@ -14,6 +14,7 @@ class Product(scrapy.Item):
     Price = Field(output_processor=TakeFirst())
     PriceSale = Field(output_processor=TakeFirst())
     Images = Field()
+    ImagesDemo = Field()
 
 
 class TgddSpider(scrapy.Spider):
@@ -24,8 +25,9 @@ class TgddSpider(scrapy.Spider):
                       'Chrome/81.0.4044.122 Safari/537.36 '
     }
     custom_settings = {
-        'FEED_FORMAT': 'csv',
-        'FEED_URI': './data/' + name + '.csv'
+        'ITEM_PIPELINES': {
+           'dongho.pipelines.TgddExcelPipeline': 300,
+        }
     }
 
     start_urls = [
@@ -69,7 +71,7 @@ class TgddSpider(scrapy.Spider):
         else:
             query = response.meta['query']
 
-        query['PageIndex'] = str(int(query['PageIndex'])+1)
+        query['PageIndex'] = str(int(query['PageIndex']) + 1)
 
         yield scrapy.FormRequest(
             url="https://www.thegioididong.com/aj/CategoryV5/Product",
@@ -96,32 +98,50 @@ class TgddSpider(scrapy.Spider):
                                                                   '"colorandpic")]//li//img/@data-img | '
                                                                   '//*[contains(@class, "picture")]//img/@src')
         ])
+        loader.add_value('ImagesDemo', [
+            response.urljoin(img.get()) for img in response.xpath('//div[contains(@class, '
+                                                                  '"boximgHighlight")]//img/@data-original')
+        ])
 
-        if response.css('#ProductId::attr(value)'):
-            query_attr = {'productID': str(response.css('#ProductId::attr(value)').get())}
-            print(query_attr)
-            yield scrapy.FormRequest(
-                url='https://www.thegioididong.com/aj/ProductV4/GetFullSpec/',
-                method='POST',
-                headers=self.HEADER,
-                formdata=query_attr,
-                callback=self.parse_attribute,
-                meta={'loader': loader},
-                dont_filter=True
-            )
+        getFullSpec = response.css('.viewparameterfull::attr(onclick)').re(
+            re.compile(r"getFullSpec\(([^,]*)[,]?(.*)[,]?\)"))
+        product_id = getFullSpec[0] or ""
+
+        if product_id:
+            query_attr = {'productID': product_id}
+            if getFullSpec[1] is not None:
+                yield scrapy.FormRequest(
+                    url='https://www.thegioididong.com/aj/ProductV4/GetFullSpec_DMX/',
+                    method='POST',
+                    headers=self.HEADER,
+                    formdata=query_attr,
+                    callback=self.parse_attribute,
+                    meta={'loader': loader},
+                    dont_filter=True
+                )
+            else:
+                yield scrapy.FormRequest(
+                    url='https://www.thegioididong.com/aj/ProductV4/GetFullSpec/',
+                    method='POST',
+                    headers=self.HEADER,
+                    formdata=query_attr,
+                    callback=self.parse_attribute,
+                    meta={'loader': loader},
+                    dont_filter=True
+                )
         else:
-            return loader.load_item()
+            yield loader.load_item()
 
-    def parse_attribute(self, response):
+    @staticmethod
+    def parse_attribute(response):
         loader = response.meta['loader']
         product = loader.load_item()
         to_html = Selector(text=json.loads(response.body)['spec'])
 
-        for attr in to_html.xpath('//li[@class]'):
+        for attr in to_html.xpath('//li'):
             key = attr.xpath('.//span//text()').get()
-            value = attr.xpath('.//span/following-sibling::div//text()').get()
-            if key not in product:
-                product.fields[key] = Field(output_processor=TakeFirst())
+            value = attr.xpath('.//div//text()').get()
+            product.fields[key] = Field(output_processor=TakeFirst())
             loader.add_value(key, value)
 
         yield loader.load_item()

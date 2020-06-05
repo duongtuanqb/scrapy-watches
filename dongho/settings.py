@@ -100,3 +100,4 @@ SPIDER_MIDDLEWARES = {
 DUPEFILTER_CLASS = 'scrapy_splash.SplashAwareDupeFilter'
 HTTPCACHE_STORAGE = 'scrapy_splash.SplashAwareFSCacheStorage'
 FEED_EXPORT_ENDCODING = 'utf-8'
+LOG_ENABLED = False
